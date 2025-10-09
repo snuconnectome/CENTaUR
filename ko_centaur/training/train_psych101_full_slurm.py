@@ -56,7 +56,10 @@ GRADIENT_ACCUMULATION_STEPS = 8  # Increased from 4 to maintain effective batch 
 NUM_EPOCHS = 3
 LEARNING_RATE = 2e-4
 MAX_SEQ_LENGTH = 512  # Reduced from 1024 to reduce activation memory (sufficient for Psych-101)
-WARMUP_STEPS = 100
+
+# Batch size = 1 safety mechanisms (critical for stable training)
+WARMUP_STEPS = 500  # Extended from 100 to stabilize AdamW momentum with batch=1 gradient noise
+MAX_GRAD_NORM = 1.0  # Gradient clipping to prevent spikes from high-variance batch=1 updates
 LOGGING_STEPS = 50
 SAVE_STEPS = 500
 
@@ -339,6 +342,7 @@ def main():
         gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
         learning_rate=LEARNING_RATE,
         warmup_steps=WARMUP_STEPS,
+        max_grad_norm=MAX_GRAD_NORM,  # Gradient clipping for batch=1 stability
         logging_steps=LOGGING_STEPS,
         save_steps=SAVE_STEPS,
         save_total_limit=3,
@@ -371,6 +375,8 @@ def main():
         log_message(f"  Gradient accumulation: {GRADIENT_ACCUMULATION_STEPS}", log_file)
         log_message(f"  Effective batch size: {BATCH_SIZE * GRADIENT_ACCUMULATION_STEPS}", log_file)
         log_message(f"  Learning rate: {LEARNING_RATE}", log_file)
+        log_message(f"  Warmup steps: {WARMUP_STEPS} (extended for batch=1 stability)", log_file)
+        log_message(f"  Max grad norm: {MAX_GRAD_NORM} (gradient clipping)", log_file)
         log_message(f"  Max sequence length: {MAX_SEQ_LENGTH}", log_file)
         log_message(f"  Total samples: {len(tokenized_dataset['train'])}", log_file)
 
