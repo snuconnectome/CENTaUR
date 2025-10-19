@@ -138,3 +138,42 @@ features = llama.generator.model.hl.squeeze().detach().cpu()
 - Use `replace_right()` to format lists with proper "and" placement
 - Horizon task includes explicit trial budget: "X additional choices"
 - Goals always mention maximizing dollars to align with human incentives
+
+## Server Infrastructure
+
+### SSH Access
+- **Compute Server**: Use SSH alias `server` to connect
+  ```bash
+  ssh server
+  ```
+- **Hardware**: 7x RTX GPUs (24GB each), 250-500GB CPU RAM
+- **Work Directory**: `/scratch/connectome/connectome1/ko-centaur`
+- **Partition**: `octopus` (SLURM)
+- **Node**: `node1` (primary GPU node)
+
+### Ko-CENTaUR Project (EXAONE Training)
+- **Location**: `/scratch/connectome/connectome1/ko-centaur`
+- **Model**: LGAI-EXAONE/EXAONE-4.0.1-32B (32B parameters)
+- **Training Method**: DeepSpeed ZeRO-3 Infinity with activation checkpointing
+- **Data**: `data/risky_choice_train.jsonl`
+- **Expected GPU Memory**: 14-17GB per GPU (with checkpointing)
+- **Training Speed**: 10-50x slower than baseline (due to activation recomputation)
+
+### SLURM Commands
+```bash
+# Submit job
+sbatch submit_exaone40_infinity.sh
+
+# Check job status
+squeue -u $USER
+
+# Monitor GPU
+watch -n 1 nvidia-smi
+
+# View logs
+tail -f logs/infinity_*.out
+tail -f logs/gpu_monitor_*.log
+
+# Cancel job
+scancel <job_id>
+```
