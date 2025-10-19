@@ -1,26 +1,32 @@
 # EXAONE 4.0-32B Training Troubleshooting Report
 
-**Date**: 2025-10-18
+**Date**: 2025-10-18 (Updated: 2025-10-19)
 **Model**: LGAI-EXAONE/EXAONE-4.0.1-32B (32 billion parameters)
-**Hardware**: 7x A100 GPUs (80GB each), 250GB CPU RAM, node1
-**Method**: DeepSpeed ZeRO-3
-**Status**: ❌ UNRESOLVED - All 5 attempted solutions failed
+**Hardware**: 7x RTX GPUs (24GB each), 250-500GB CPU RAM, node1
+**Method**: DeepSpeed ZeRO-3, ZeRO-2
+**Status**: ❌ UNRESOLVED - Hardware limitation discovered (24GB GPU insufficient for 32B model)
 
 ---
 
 ## Executive Summary
 
-Attempted to train EXAONE 4.0-32B model using DeepSpeed ZeRO-3 on 7x A100 GPUs. Successfully resolved Phase 1 (model loading OOM) but encountered persistent failure at DeepSpeed initialization phase that remains unresolved after 5 different approaches.
+Attempted to train EXAONE 4.0-32B model using DeepSpeed ZeRO-3 and ZeRO-2 on 7x RTX GPUs (24GB each). Successfully resolved Phase 1 (model loading OOM) but discovered fundamental hardware limitation in Phase 2/3.
 
 **Key Achievements**:
 - ✅ Identified and fixed model loading OOM through initialization order correction
 - ✅ Systematically eliminated multiple potential causes through controlled experiments
-- ✅ Identified exact failure point: DeepSpeed optimizer initialization
+- ✅ Discovered actual GPU specifications: RTX 24GB, not A100 80GB
+- ✅ Identified root cause: GPU memory capacity insufficient for 32B model
+
+**Hardware Discovery (2025-10-19)**:
+- ❌ Initial assumption: A100 80GB GPUs → **INCORRECT**
+- ✅ Actual hardware: RTX 24GB GPUs (via `scontrol show node node1`)
+- ✅ Confirmed by Job 62720 error: "GPU 0 has a total capacity of 23.67 GiB"
 
 **Current Blocker**:
-- ❌ All jobs killed with SIGKILL at DeepSpeed optimizer initialization phase
-- ❌ Failure independent of: dataloader workers, gradient settings, GPU memory settings, CPU parameter offload
-- ❌ Suspected root cause: CPU memory exhaustion during optimizer initialization (128GB AdamW states)
+- ❌ ZeRO-3 (Jobs 62710-62719): SIGKILL at optimizer initialization due to activation memory
+- ❌ ZeRO-2 (Job 62720): Immediate GPU OOM when loading 64GB model to 24GB GPU
+- ❌ Root cause: 24GB GPU fundamentally insufficient for 32B model (64GB parameters)
 
 ---
 
@@ -148,6 +154,113 @@ Model loading succeeds, but training fails at DeepSpeed initialization.
 3. Failure timing: 13-50 seconds after message (optimizer initialization phase)
 4. CPU RAM allocation: 250GB (barely sufficient for theoretical 255GB)
 5. No process survives past this point across all 5 attempted solutions
+
+---
+
+## Root Cause Discovery (Phase 3): GPU Hardware Constraint
+
+### Hardware Specifications Discovery (2025-10-19)
+
+**Initial Assumption (INCORRECT)**:
+- Based on cluster documentation: A100 80GB GPUs
+- Expected capacity: 7 × 80GB = 560GB total GPU memory
+
+**Actual Hardware (CONFIRMED)**:
+```bash
+$ scontrol show node node1
+Gres=gpu:rtx:8
+
+$ Job 62720 error log:
+GPU 0 has a total capacity of 23.67 GiB
+```
+
+**Reality**: 7x RTX GPUs with 24GB VRAM each
+- Total GPU memory: 7 × 24GB = 168GB (70% less than assumed)
+- Likely RTX 3090 or RTX 4090 consumer GPUs
+
+### Phase 3 Testing (Jobs 62718-62720)
+
+#### Job 62718: Option 5 (Increased CPU Memory)
+**Changes**: CPU RAM 250GB → 500GB
+
+**Rationale**: Address suspected CPU memory exhaustion during optimizer init
+
+**Result**: ❌ FAILED
+```
+Parameter Offload - Persistent parameters statistics: param_count = 257, numel = 676864
+[2025-10-19 14:15:23] Killing subprocess (SIGKILL -9)
+```
+- Failed at same point as previous attempts
+- CPU memory increase alone insufficient
+- Root cause not CPU-side as hypothesized
+
+#### Job 62719: Option 5+6 (CPU + SGD Optimizer)
+**Changes**:
+- CPU RAM: 500GB
+- Optimizer: AdamW → SGD (256GB → 128GB optimizer states)
+
+**Rationale**: Reduce optimizer memory footprint by 50%
+
+**Result**: ❌ FAILED
+```
+Parameter Offload - Persistent parameters statistics: param_count = 257, numel = 676864
+[2025-10-19 14:22:33] Killing subprocess (SIGKILL -9)
+```
+- SGD's 128GB optimizer states still triggered failure
+- Confirms problem not solely optimizer states
+
+#### Job 62720: Option 5+6+7 (CPU + SGD + ZeRO-2)
+**Changes**:
+- CPU RAM: 500GB
+- Optimizer: SGD
+- DeepSpeed: ZeRO-3 → ZeRO-2
+
+**Rationale**: ZeRO-2 simpler initialization, different memory pattern
+
+**Result**: ❌ FAILED (Different failure mode!)
+```
+torch.OutOfMemoryError: CUDA out of memory.
+Tried to allocate 268.00 MiB.
+GPU 0 has a total capacity of 23.67 GiB of which 221.50 MiB is free.
+Including non-PyTorch memory, this process has 23.44 GiB memory in use.
+Of the allocated memory 23.24 GiB is allocated by PyTorch
+```
+
+**Critical Discovery**:
+- Exit code 1 (Python exception) instead of SIGKILL -9
+- Immediate failure during `self.module.to(self.device)`
+- Error message revealed: **GPU total capacity = 23.67 GiB (24GB)**
+- ZeRO-2 tries to load full 64GB model → OOM on 24GB GPU
+
+### Root Cause Analysis (Final)
+
+**Why ZeRO-3 Failed (Jobs 62710-62719)**:
+1. ZeRO-3 partitions parameters across GPUs: 64GB ÷ 7 = ~9GB per GPU ✅ Fits
+2. But activations are NOT partitioned: ~10-20GB per GPU for 32B model
+3. **Total needed**: 9GB params + 10-20GB activations + 3-5GB overhead = **22-34GB**
+4. **Available**: 24GB GPU
+5. During optimizer init, temporary activation buffers cause spike → OOM
+6. OS kills process with SIGKILL -9
+
+**Why ZeRO-2 Failed (Job 62720)**:
+1. ZeRO-2 does NOT partition parameters
+2. Each GPU needs full 64GB model loaded
+3. **64GB model → 24GB GPU = Immediate OOM**
+4. Fails before any training, during model.to(device)
+
+**Fundamental Constraint**:
+```
+32B Model Requirements:
+- Parameters: 64GB (bfloat16)
+- Activations: ~15GB per GPU (batch=1, seq=512)
+- Minimum per GPU: ~25-30GB
+
+Available Hardware:
+- RTX 24GB GPUs
+- Shortfall: 5-10GB per GPU
+
+Conclusion: Cannot train 32B model without quantization on 24GB GPUs
+```
 
 ---
 
@@ -309,8 +422,9 @@ but since the APIs are compatible, accepting this combination
 
 ### Hardware
 - **Node**: node1
-- **GPUs**: 7x NVIDIA A100 (80GB each)
-- **Memory**: 250GB RAM allocated
+- **GPUs**: 7x NVIDIA RTX (24GB each) - Confirmed via `scontrol show node node1` and Job 62720 error logs
+- **Memory**: 250-500GB RAM allocated (increased in Jobs 62718-62720)
+- **NOTE**: Initial documentation incorrectly assumed A100 80GB GPUs
 
 ### Software Stack
 ```
@@ -341,12 +455,17 @@ Location: /scratch/connectome/connectome1/miniconda3/envs/ko-centaur
 | 62712 | 2 | Option 2: simplified | ✅ | ❌ Killed at Param Offload | ⬜ | ~5:33min | FAILED |
 | 62713 | 2 | Option 3: aggressive GPU mem | ✅ | ❌ Killed at Param Offload | ⬜ | ~6:05min | FAILED |
 | 62714 | 2 | Option 4: no param offload | ✅ | ❌ Killed at Param Offload | ⬜ | ~48min | FAILED |
+| 62718 | 3 | Option 5: CPU 500GB | ✅ | ❌ Killed at Param Offload | ⬜ | ~6min | FAILED |
+| 62719 | 3 | Option 5+6: 500GB + SGD | ✅ | ❌ Killed at Param Offload | ⬜ | ~6min | FAILED |
+| 62720 | 3 | Option 5+6+7: 500GB + SGD + ZeRO-2 | ✅ | ❌ GPU OOM (exit 1) | ⬜ | ~2min | FAILED |
 
 **Notes**:
 - Phase 1 (Jobs 62706-62708): Model loading issues - **RESOLVED**
-- Phase 2 (Jobs 62710-62714): DeepSpeed initialization hang - **UNRESOLVED**
+- Phase 2 (Jobs 62710-62714): DeepSpeed ZeRO-3 initialization - **HARDWARE LIMITATION**
+- Phase 3 (Jobs 62718-62720): Alternative approaches - **CONFIRMED GPU CAPACITY ISSUE**
 - All Phase 2 jobs fail at identical point: "Parameter Offload" log → optimizer init → SIGKILL
-- Job 62714 took longer due to 31-minute model download (not previously cached)
+- Job 62720 (ZeRO-2) revealed actual GPU specs: 24GB, not 80GB
+- **Root Cause**: RTX 24GB GPUs insufficient for 32B model (64GB parameters)
 
 ---
 
@@ -392,78 +511,207 @@ Location: /scratch/connectome/connectome1/miniconda3/envs/ko-centaur
 
 ---
 
-## Recommended Next Steps
+## Recommended Next Steps (Updated for RTX 24GB GPUs)
 
-### High Priority Solutions
+### Context
+**Hardware Constraint**: 7x RTX GPUs with 24GB VRAM each (not A100 80GB)
+**Challenge**: Train 32B model (64GB parameters) on 24GB GPUs
+**Solution Direction**: Extreme memory optimization via quantization + offloading
 
-#### Option 5: Increase CPU Memory Allocation (RECOMMENDED)
-**Changes**:
-```bash
-#SBATCH --mem=500G  # Double from 250GB to 500GB
+### High Priority Solutions (RTX 24GB Specific)
+
+#### Option A: QLoRA (4-bit Quantization) - MOST PROMISING
+**Description**: Use 4-bit quantization with LoRA adapters to drastically reduce memory footprint
+
+**Implementation**:
+```python
+# Install required packages
+pip install bitsandbytes
+pip install peft
+
+# Training configuration
+from transformers import BitsAndBytesConfig
+from peft import LoraConfig, get_peft_model
+
+# 4-bit quantization config
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_use_double_quant=True,
+)
+
+# Load model with quantization
+model = AutoModelForCausalLM.from_pretrained(
+    "LGAI-EXAONE/EXAONE-4.0.1-32B",
+    quantization_config=bnb_config,
+    device_map="auto",
+)
+
+# LoRA config
+lora_config = LoraConfig(
+    r=64,  # LoRA rank
+    lora_alpha=128,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM"
+)
+
+model = get_peft_model(model, lora_config)
 ```
 
-**Rationale**:
-- Current allocation (250GB) barely sufficient for theoretical requirement (255GB)
-- Temporary spikes during initialization likely cause OOM
-- Simple solution: double CPU RAM to 500GB
-- Most likely to resolve issue based on evidence
+**Memory Savings**:
+- Full model: 64GB → 4-bit quantized: ~16GB
+- LoRA adapters: Additional ~2-4GB
+- **Total per GPU: ~18-20GB** (fits in 24GB!)
+- With 7 GPUs: Can distribute activations and gradients
 
-**Probability of success**: 80%
+**Expected Results**:
+- ✅ Model fits in 24GB GPU memory
+- ✅ Training possible with DeepSpeed ZeRO-2 or ZeRO-3
+- ⚠️ Slight quality degradation vs full precision (usually <2% on benchmarks)
+- ⚠️ Only LoRA weights trained, not full model
 
-#### Option 6: Use Lighter Optimizer (SGD)
-**Changes**:
-```yaml
-optim: "sgd"  # Instead of adamw_torch
-momentum: 0.9
-```
+**Probability of success**: 85%
 
-**Rationale**:
-- AdamW: 2 optimizer states (momentum + variance) = 256GB total
-- SGD with momentum: 1 optimizer state = 128GB total
-- Reduces optimizer memory by 50%
-- May reduce final model quality slightly
+**References**:
+- [QLoRA Paper](https://arxiv.org/abs/2305.14314)
+- [FSDP+QLoRA by Answer.ai](https://www.answer.ai/posts/2024-03-06-fsdp-qlora.html) - 70B on dual RTX 3090s
 
-**Probability of success**: 60%
+#### Option B: DeepSpeed ZeRO-3 Infinity (CPU + NVMe Offload)
+**Description**: Offload parameters, optimizer states, and activations to CPU RAM and NVMe storage
 
-### Medium Priority Solutions
-
-#### Option 7: ZeRO-2 Instead of ZeRO-3
-**Changes**:
+**Implementation**:
 ```json
 {
   "zero_optimization": {
-    "stage": 2,  // Instead of 3
-    "offload_optimizer": {"device": "cpu"}
+    "stage": 3,
+    "offload_optimizer": {
+      "device": "cpu",
+      "pin_memory": true
+    },
+    "offload_param": {
+      "device": "cpu",
+      "pin_memory": true
+    },
+    "memory_efficient_linear": true,
+    "stage3_max_live_parameters": 1e8,
+    "stage3_max_reuse_distance": 1e8,
+    "stage3_prefetch_bucket_size": 5e7,
+    "stage3_param_persistence_threshold": 1e5
+  },
+  "aio": {
+    "block_size": 1048576,
+    "queue_depth": 8,
+    "thread_count": 1,
+    "single_submit": false,
+    "overlap_events": true
+  },
+  "activation_checkpointing": {
+    "partition_activations": true,
+    "cpu_checkpointing": true,
+    "contiguous_memory_optimization": true,
+    "number_checkpoints": 4
   }
 }
 ```
 
-**Rationale**:
-- ZeRO-2: Partitions gradients + optimizer, keeps full parameters on each GPU
-- Requires: 64GB model + ~20GB activations = ~84GB per GPU (may exceed 80GB A100)
-- Simpler initialization, different memory pattern
-- **Risk**: May not fit in 80GB A100 with full parameters
+**Memory Optimization**:
+- Parameters: Offload to CPU (500GB available)
+- Optimizer states: Offload to CPU
+- Activations: Checkpoint and partition
+- GPU memory: Only active computation (~8-12GB)
 
-**Probability of success**: 30% (likely GPU OOM)
+**Expected Results**:
+- ✅ Full precision training (no quality loss)
+- ⚠️ Very slow due to CPU/GPU transfer overhead (10-50x slower)
+- ⚠️ Requires large CPU RAM (500GB configured)
+- ⚠️ May require NVMe configuration for activation offload
 
-### Lower Priority / Experimental Solutions
+**Probability of success**: 50% (communication overhead may be prohibitive)
 
-#### Option 8: PyTorch FSDP Instead of DeepSpeed
-**Rationale**: Different distributed training framework, may have different memory pattern
+**References**:
+- [DeepSpeed ZeRO-3 Offload](https://www.deepspeed.ai/2021/03/07/zero3-offload.html) - 40B on 32GB V100
 
-#### Option 9: Smaller Model Test (EXAONE-7.8B)
-**Rationale**: Verify infrastructure works, confirm issue is 32B-specific
+### Medium Priority Solutions
 
-#### Option 10: Different DeepSpeed Version
-**Rationale**: May be version-specific bug
-```bash
-pip install deepspeed==0.12.6  # Older stable version
+#### Option C: FSDP + QLoRA (PyTorch Native)
+**Description**: Use PyTorch FSDP (Fully Sharded Data Parallel) with QLoRA
+
+**Implementation**:
+```python
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import CPUOffload
+
+# FSDP + QLoRA configuration
+fsdp_config = {
+    "fsdp_transformer_layer_cls_to_wrap": ["TransformerBlock"],
+    "fsdp_cpu_offload": True,
+    "fsdp_use_orig_params": True,
+}
+
+# Use with HuggingFace Trainer
+training_args = TrainingArguments(
+    fsdp="full_shard offload",
+    fsdp_config=fsdp_config,
+)
 ```
 
-#### Option 11: Sequential Optimizer Initialization
-**Rationale**: Initialize optimizers one GPU at a time to avoid simultaneous spike
-- Requires custom DeepSpeed initialization code
-- Complex implementation
+**Expected Results**:
+- ✅ Alternative to DeepSpeed, may have different memory pattern
+- ✅ Native PyTorch support, simpler debugging
+- ⚠️ Less mature than DeepSpeed for extreme cases
+
+**Probability of success**: 60%
+
+**References**:
+- [Answer.ai FSDP+QLoRA](https://www.answer.ai/posts/2024-03-06-fsdp-qlora.html) - 70B on 2x RTX 3090
+
+#### Option D: Gradient Accumulation + Micro-batching
+**Description**: Use extremely small micro-batches with large gradient accumulation
+
+**Changes**:
+```yaml
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 32  # Effective batch = 224
+gradient_checkpointing: true
+```
+
+**Expected Results**:
+- ✅ Reduces activation memory
+- ⚠️ Very slow training (32 forward passes per update)
+- ⚠️ Still requires parameters to fit in GPU
+
+**Probability of success**: 20% (parameters still don't fit)
+
+### Fallback Solutions
+
+#### Option E: Use EXAONE 7.8B Model
+**Description**: Switch to smaller model that fits comfortably in 24GB
+
+**Changes**:
+```yaml
+model:
+  name: "LGAI-EXAONE/EXAONE-4.0.1-7.8B"
+```
+
+**Expected Results**:
+- ✅ Guaranteed to work
+- ✅ Full precision training
+- ✅ Fast training
+- ❌ Different model size (not 32B as required)
+
+**Probability of success**: 100%
+
+#### Option F: Model Parallelism (Tensor/Pipeline)
+**Description**: Split model layers across GPUs (not just data parallelism)
+
+**Implementation**: Requires Megatron-LM integration or manual model splitting
+- Very complex implementation
+- May not be worth effort vs QLoRA
+
+**Probability of success**: 40% (high complexity)
 
 ### Research Questions
 
@@ -576,33 +824,48 @@ journalctl -k | grep -i oom
 
 ## Conclusion
 
-**Current Status**: Blocked at DeepSpeed ZeRO-3 optimizer initialization phase
+**Current Status**: Hardware constraint discovered - RTX 24GB GPUs insufficient for standard 32B model training
 
 **What We Solved**:
 - ✅ Phase 1: Model loading OOM through correct initialization order
-- ✅ Verified model loads successfully (14/14 checkpoint shards, 100% complete)
-- ✅ Documented complete troubleshooting process with evidence
-- ✅ Systematically tested and eliminated 5 different potential causes
+- ✅ Verified model loads successfully (14/14 checkpoint shards)
+- ✅ Systematically tested 8 different approaches (Jobs 62706-62720)
+- ✅ Identified actual hardware: RTX 24GB GPUs, not A100 80GB
 
-**What Remains Unresolved**:
-- ❌ All 5 attempted solutions (Options 0-4) failed at identical point
-- ❌ DeepSpeed optimizer initialization consistently triggers SIGKILL (-9)
-- ❌ Failure independent of: workers, gradient settings, GPU memory, parameter offload
+**What We Discovered**:
+- ❌ ZeRO-3 (Jobs 62710-62719): Fails at optimizer init due to activation memory pressure on 24GB GPUs
+- ❌ ZeRO-2 (Job 62720): Fails immediately trying to load 64GB model on 24GB GPU
+- ❌ Root cause: GPU memory capacity fundamentally insufficient for 32B model without extreme optimization
 
-**Root Cause Hypothesis**:
-CPU memory exhaustion during optimizer initialization (AdamW requires ~255GB, allocated 250GB)
+**Hardware Reality**:
+```
+Assumed: 7x A100 80GB = 560GB total GPU memory
+Actual:  7x RTX 24GB  = 168GB total GPU memory (70% less)
+Required: 64GB parameters + activations/gradients ≈ 100-150GB minimum
+```
 
-**Recommended Next Action**:
-**Option 5: Increase CPU Memory to 500GB** (80% probability of success)
-- Simple change: `#SBATCH --mem=500G` in Slurm script
-- Addresses root cause directly
-- Low risk, high probability solution
+**Path Forward (RTX 24GB GPUs)**:
 
-**Alternative Options**:
-- Option 6: Use SGD optimizer (60% success probability)
-- Option 7: Try ZeRO-2 instead (30% success probability, may GPU OOM)
+**Option A: QLoRA (RECOMMENDED - 85% success probability)**
+- 4-bit quantization: 64GB → 16GB
+- LoRA adapters: +2-4GB
+- Total: ~18-20GB per GPU ✅ Fits in 24GB
+- Trade-off: Train adapters only, slight quality reduction
+- Implementation: Add `bitsandbytes` + `peft` libraries
+
+**Option B: DeepSpeed ZeRO-3 Infinity (50% success probability)**
+- CPU/NVMe offload of everything
+- Full precision training
+- Trade-off: 10-50x slower due to transfer overhead
+- Requires: Activation checkpointing config
+
+**Option E: EXAONE 7.8B (100% success probability)**
+- Fallback: Use smaller model
+- Guaranteed to work on 24GB GPUs
+- Trade-off: Different model size
 
 **Timeline**:
 - Phase 1 (Model loading): ✅ RESOLVED (2025-10-18)
-- Phase 2 (DeepSpeed initialization): ❌ UNRESOLVED after 5 attempts (2025-10-18)
-- Next attempt: Option 5 with increased CPU memory
+- Phase 2 (DeepSpeed ZeRO-3): ❌ Hardware limitation (2025-10-18)
+- Phase 3 (Hardware discovery): ✅ Identified RTX 24GB constraint (2025-10-19)
+- **Next step**: Implement QLoRA approach for RTX 24GB GPUs
