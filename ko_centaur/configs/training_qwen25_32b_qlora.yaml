@@ -1,0 +1,70 @@
+# Qwen2.5-32B-Instruct QLoRA Training Configuration
+# 4-bit quantization for 4x RTX 3090 (24GB each)
+
+model:
+  name: /scratch/connectome/connectome1/ko-centaur/models/qwen2.5-32b-instruct
+  trust_remote_code: true
+
+  lora:
+    r: 16                          # LoRA rank (higher than GPT-OSS due to stable quantization)
+    lora_alpha: 32                 # LoRA alpha (2x rank)
+    target_modules:                # Qwen2.5 attention and MLP layers
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
+    lora_dropout: 0.05
+    bias: none
+    task_type: CAUSAL_LM
+
+data:
+  train_file: /scratch/connectome/connectome1/ko-centaur/data/choices13k_full.jsonl
+  max_seq_length: 512
+  validation_split: 0.1
+
+training:
+  # Batch configuration - conservative for first run
+  per_device_train_batch_size: 1     # Start with 1, can increase after validation
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 8     # Effective batch size = 1 × 8 × 4 GPUs = 32
+
+  # Learning rate schedule
+  num_train_epochs: 3
+  learning_rate: 2.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+
+  # Regularization
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+
+  # Precision
+  fp16: false                        # Disable fp16 for QLoRA
+  bf16: true                         # Use bf16 for computation
+
+  # Checkpointing
+  save_strategy: steps
+  save_steps: 500
+  save_total_limit: 3
+
+  # Evaluation
+  eval_strategy: steps
+  eval_steps: 250
+
+  # Logging
+  logging_steps: 10
+
+  # Optimizer - memory-efficient for QLoRA
+  optim: paged_adamw_8bit
+
+output:
+  output_dir: /scratch/connectome/connectome1/ko-centaur/outputs/qwen25-32b-qlora
+
+misc:
+  seed: 42
+  data_seed: 42
+  report_to: none
+  run_name: qwen25-32b-qlora-choices13k
