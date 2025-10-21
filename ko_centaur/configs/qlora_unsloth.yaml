@@ -1,0 +1,74 @@
+# QLoRA Configuration for Unsloth Framework
+# Optimized for GPT-OSS-20B training with 4-bit quantization
+
+quantization:
+  # 4-bit NF4 quantization
+  load_in_4bit: true
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_compute_dtype: "float16"
+  bnb_4bit_use_double_quant: true
+  bnb_4bit_quant_storage: "uint8"
+
+lora:
+  # LoRA hyperparameters
+  r: 16                    # LoRA rank (higher = more capacity, more memory)
+  lora_alpha: 32           # LoRA scaling factor (typically 2 * r)
+  lora_dropout: 0.05       # Dropout for regularization
+  bias: "none"             # Don't train biases
+  task_type: "CAUSAL_LM"   # Causal language modeling
+
+  # Target modules for GPT-OSS architecture
+  # GPT-OSS uses GPT-2 style naming: c_attn, c_proj, c_fc
+  target_modules:
+    - "c_attn"       # Combined QKV attention projection (most important)
+    - "c_proj"       # Attention output projection
+    - "c_fc"         # MLP first linear (up projection)
+    - "c_proj_mlp"   # MLP second linear (down projection)
+
+  # Alternative: target only attention (faster, less memory)
+  # target_modules: ["c_attn", "c_proj"]
+
+  # Module exclusion
+  modules_to_save: null    # Don't train embedding or LM head
+
+unsloth:
+  # Unsloth-specific optimizations
+  use_gradient_checkpointing: "unsloth"  # Unsloth's optimized checkpointing
+  use_rslora: false                      # Rank-stabilized LoRA (experimental)
+  use_dora: false                        # DoRA (experimental)
+
+  # Sequence length optimization
+  max_seq_length: 512
+
+  # Memory optimization
+  use_sliding_window: false
+
+  # Training optimization
+  embedding_learning_rate: null  # Use same LR as adapters
+
+memory:
+  # Memory-efficient settings
+  optim: "paged_adamw_8bit"     # 8-bit paged AdamW optimizer
+  gradient_checkpointing: true   # Enable gradient checkpointing
+  gradient_accumulation_steps: 8 # Accumulate gradients for larger effective batch
+
+  # Precision
+  fp16: true
+  bf16: false  # Use FP16 for RTX 3090 (no BF16 support)
+
+  # Batch size
+  per_device_train_batch_size: 1  # Small batch per GPU
+  per_device_eval_batch_size: 1
+
+advanced:
+  # Advanced LoRA settings
+  lora_init_method: "gaussian"  # LoRA initialization method
+  lora_rank_pattern: {}          # Custom rank per layer (empty = use global r)
+  lora_alpha_pattern: {}         # Custom alpha per layer (empty = use global alpha)
+
+  # Inference mode
+  inference_mode: false
+
+  # Training stability
+  max_grad_norm: 1.0
+  warmup_ratio: 0.05

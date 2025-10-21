@@ -1,0 +1,113 @@
+# Training Configuration for GPT-OSS-20B
+# Model: openai/gpt-oss-20b
+# Method: Unsloth QLoRA (4-bit quantization + LoRA)
+
+model:
+  name: "openai/gpt-oss-20b"
+  revision: "main"
+  trust_remote_code: true
+
+  # Quantization (4-bit NF4)
+  load_in_4bit: true
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_compute_dtype: "float16"
+  bnb_4bit_use_double_quant: true
+
+lora:
+  # LoRA configuration
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+
+  # Target modules (GPT-OSS architecture)
+  target_modules:
+    - "c_attn"      # Combined QKV projection
+    - "c_proj"      # Output projection
+    - "c_fc"        # Feedforward up projection
+    - "c_proj_mlp"  # Feedforward down projection
+
+  # Unsloth optimization
+  use_gradient_checkpointing: "unsloth"
+  random_state: 42
+  max_seq_length: 512
+
+training:
+  # Batch size per GPU
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+
+  # Gradient accumulation for effective batch size
+  gradient_accumulation_steps: 8
+  # Effective batch size = 1 * 8 * N_GPUs
+
+  # Learning rate (standard for LoRA)
+  learning_rate: 2.0e-4
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.05
+
+  # Training duration
+  num_train_epochs: 3
+  max_steps: -1  # -1 means use num_train_epochs
+
+  # Optimization
+  optim: "paged_adamw_8bit"  # Memory-efficient optimizer
+  weight_decay: 0.01
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-8
+  max_grad_norm: 1.0
+
+  # Precision
+  fp16: true
+  bf16: false
+
+  # Memory optimization
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs:
+    use_reentrant: false
+
+  # Logging and checkpointing
+  logging_steps: 10
+  save_strategy: "steps"
+  save_steps: 500
+  save_total_limit: 3
+  evaluation_strategy: "steps"
+  eval_steps: 500
+
+data:
+  # Dataset
+  train_file: "data/choices13k_1000.jsonl"
+  validation_split: 0.1
+
+  # Sequence length
+  max_seq_length: 512
+
+  # Data collation
+  dataloader_num_workers: 4
+  dataloader_pin_memory: true
+
+output:
+  output_dir: "models/ko-centaur-gpt-oss"
+  overwrite_output_dir: false
+
+  # Checkpointing
+  save_safetensors: true
+  resume_from_checkpoint: null
+
+  # LoRA specific
+  merge_adapter_on_save: false  # Keep adapter separate for flexibility
+
+misc:
+  # Reproducibility
+  seed: 42
+  data_seed: 42
+
+  # Reporting
+  report_to: ["tensorboard"]
+  run_name: "ko-centaur-gpt-oss"
+
+  # Device
+  local_rank: -1
+  ddp_find_unused_parameters: false

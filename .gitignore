@@ -1,1 +1,34 @@
 __pycache__/
+
+# Large files and directories
+ko-centaur-env/
+ko_centaur/data/raw/*.jsonl
+ko_centaur/data/raw/*.json
+ko_centaur/data/processed/
+*.dylib
+*.so
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.msgpack
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System
+.DS_Store
+.clang-module-cache/
+
+# Legacy and temporary
+legacy/
+tmp/
+*.log
