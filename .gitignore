@@ -5,6 +5,9 @@ ko-centaur-env/
 ko_centaur/data/raw/*.jsonl
 ko_centaur/data/raw/*.json
 ko_centaur/data/processed/
+ko_centaur/data/*.jsonl
+ko_centaur/data/*.json
+ko_centaur/data/kfold_splits/
 *.dylib
 *.so
 *.pth
