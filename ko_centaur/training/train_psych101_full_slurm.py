@@ -45,21 +45,20 @@ LOG_DIR = "/scratch/connectome/connectome1/ko-centaur/logs"
 DATA_FILE = "/scratch/connectome/connectome1/ko-centaur/data/psych101_exaone_train.jsonl"
 CACHE_DIR = "/scratch/connectome/connectome1/ko-centaur/.cache/huggingface"
 
-# Resume from checkpoint
-RESUME_FROM_CHECKPOINT = "/scratch/connectome/connectome1/ko-centaur/models/exaone-psych101-full/checkpoint-3000"
+# Resume from checkpoint - DISABLED for fresh start with new batch_size=1 configuration
+# Previous checkpoint-3000 was saved with batch_size=2, incompatible with current batch_size=1
+RESUME_FROM_CHECKPOINT = None
 
-# Training hyperparameters - MEMORY OPTIMIZED for RTX A5000 24GB (Option A)
-# Maintains effective batch size = 8 while reducing peak memory usage
-# Previous config (batch_size=2, grad_accum=4, seq_len=1024) caused OOM after step 3000
-BATCH_SIZE = 1  # Reduced from 2 to lower peak memory per forward pass
-GRADIENT_ACCUMULATION_STEPS = 8  # Increased from 4 to maintain effective batch size = 8
+# Training hyperparameters - OPTIMIZED with 4-bit quantization (faster than 8-bit)
+BATCH_SIZE = 2  # Restored to 2 (4-bit saves memory vs 8-bit)
+GRADIENT_ACCUMULATION_STEPS = 4  # Restored to 4 (effective batch size = 8)
 NUM_EPOCHS = 3
 LEARNING_RATE = 2e-4
-MAX_SEQ_LENGTH = 512  # Reduced from 1024 to reduce activation memory (sufficient for Psych-101)
+MAX_SEQ_LENGTH = 1024  # Full length
 
-# Batch size = 1 safety mechanisms (critical for stable training)
-WARMUP_STEPS = 500  # Extended from 100 to stabilize AdamW momentum with batch=1 gradient noise
-MAX_GRAD_NORM = 1.0  # Gradient clipping to prevent spikes from high-variance batch=1 updates
+# Training stability
+WARMUP_STEPS = 100  # Standard warmup
+MAX_GRAD_NORM = 1.0  # Gradient clipping
 LOGGING_STEPS = 50
 SAVE_STEPS = 500
 
@@ -168,7 +167,8 @@ def main():
     log_file = setup_logging()
 
     log_message("="*70, log_file)
-    log_message("Ko-CENTaUR: Full Psych-101 Training (SLURM - RESUME)", log_file)
+    log_message("Ko-CENTaUR: Full Psych-101 Training (4-bit Optimized)", log_file)
+    log_message("Optimizations: 4-bit quantization (faster than 8-bit)", log_file)
     log_message("="*70, log_file)
     log_message(f"Start time: {datetime.now()}", log_file)
     log_message(f"Model: {MODEL_NAME}", log_file)
@@ -269,14 +269,16 @@ def main():
         return
 
     # -------------------------------------------------------------------------
-    # 4. Load Model with 8-bit Quantization (More Stable)
+    # 4. Load Model with 4-bit Quantization
     # -------------------------------------------------------------------------
-    log_message("\n[4/6] Loading model with 8-bit quantization...", log_file)
+    log_message("\n[4/6] Loading model with 4-bit quantization...", log_file)
 
-    # 8-bit quantization config (more stable than 4-bit with CUDA 11.8)
+    # 4-bit quantization config (faster than 8-bit, sufficient quality for fine-tuning)
     bnb_config = BitsAndBytesConfig(
-        load_in_8bit=True,
-        llm_int8_threshold=6.0,  # Default threshold for outlier detection
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True,
     )
 
     try:
@@ -288,15 +290,16 @@ def main():
             quantization_config=bnb_config,
             device_map=device_map,
             trust_remote_code=True,
-            cache_dir=CACHE_DIR
+            cache_dir=CACHE_DIR,
+            use_cache=False,  # Disable cache for gradient accumulation
         )
 
         log_message(f"✅ Model loaded", log_file)
         log_message(f"   Device map: {model.hf_device_map}", log_file)
 
-        # Prepare model for training
-        model = prepare_model_for_kbit_training(model)
-        log_message(f"✅ Model prepared for k-bit training", log_file)
+        # Prepare model for training (enable gradient checkpointing for memory efficiency)
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+        log_message(f"✅ Model prepared for k-bit training (gradient checkpointing: enabled)", log_file)
 
     except Exception as e:
         log_message(f"❌ Error loading model: {e}", log_file)
@@ -332,9 +335,8 @@ def main():
     # -------------------------------------------------------------------------
     log_message("\n[6/6] Starting training...", log_file)
 
-    # Training arguments (Single GPU configuration)
-    # Note: Using bf16 instead of fp16 for better stability with BitsAndBytes
-    # Gradient checkpointing enabled via prepare_model_for_kbit_training for memory efficiency
+    # Training arguments with optimizations enabled
+    # 4-bit quantization (faster than 8-bit) + Gradient checkpointing (memory efficient)
     training_args = TrainingArguments(
         output_dir=OUTPUT_DIR,
         num_train_epochs=NUM_EPOCHS,
@@ -342,15 +344,17 @@ def main():
         gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
         learning_rate=LEARNING_RATE,
         warmup_steps=WARMUP_STEPS,
-        max_grad_norm=MAX_GRAD_NORM,  # Gradient clipping for batch=1 stability
+        max_grad_norm=MAX_GRAD_NORM,
         logging_steps=LOGGING_STEPS,
         save_steps=SAVE_STEPS,
         save_total_limit=3,
-        bf16=True,  # Using bf16 instead of fp16 for stability
+        bf16=True,
         optim="paged_adamw_8bit",
         logging_dir=f"{OUTPUT_DIR}/logs",
         report_to="none",
         remove_unused_columns=False,
+        gradient_checkpointing=True,  # Required for memory efficiency
+        gradient_checkpointing_kwargs={"use_reentrant": False},  # Suppress warning
     )
 
     # Data collator
@@ -375,10 +379,11 @@ def main():
         log_message(f"  Gradient accumulation: {GRADIENT_ACCUMULATION_STEPS}", log_file)
         log_message(f"  Effective batch size: {BATCH_SIZE * GRADIENT_ACCUMULATION_STEPS}", log_file)
         log_message(f"  Learning rate: {LEARNING_RATE}", log_file)
-        log_message(f"  Warmup steps: {WARMUP_STEPS} (extended for batch=1 stability)", log_file)
-        log_message(f"  Max grad norm: {MAX_GRAD_NORM} (gradient clipping)", log_file)
+        log_message(f"  Warmup steps: {WARMUP_STEPS}", log_file)
+        log_message(f"  Max grad norm: {MAX_GRAD_NORM}", log_file)
         log_message(f"  Max sequence length: {MAX_SEQ_LENGTH}", log_file)
         log_message(f"  Total samples: {len(tokenized_dataset['train'])}", log_file)
+        log_message(f"  Optimizations: 4-bit quantization (faster than 8-bit)", log_file)
 
         # Log GPU memory info
         if torch.cuda.is_available():

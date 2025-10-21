@@ -33,10 +33,16 @@ import json
 # Use GPU 2 (adjust if different GPU is available)
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
+# Set HuggingFace cache to /scratch to avoid home directory space issues
+os.environ["HF_HOME"] = "/scratch/connectome/connectome1/ko-centaur/.cache/huggingface"
+os.environ["TRANSFORMERS_CACHE"] = "/scratch/connectome/connectome1/ko-centaur/.cache/huggingface"
+
 # Model configuration
 MODEL_NAME = "LGAI-EXAONE/EXAONE-3.0-7.8B-Instruct"
 OUTPUT_DIR = "/scratch/connectome/connectome1/ko-centaur/models/exaone-psych101-full"
 LOG_DIR = "/scratch/connectome/connectome1/ko-centaur/logs"
+DATA_FILE = "/scratch/connectome/connectome1/ko-centaur/data/psych101_exaone_train.jsonl"
+CACHE_DIR = "/scratch/connectome/connectome1/ko-centaur/.cache/huggingface"
 
 # Training hyperparameters
 BATCH_SIZE = 4  # Adjust based on GPU memory
@@ -79,22 +85,43 @@ def format_psych101_prompt(example):
     """
     Format Psych-101 samples into EXAONE instruction template
 
+    Supports two formats:
+    1. Original Psych-101: {'prompt': str, 'choice': int}
+    2. Preprocessed EXAONE: {'messages': [{'role': str, 'content': str}]}
+
     EXAONE template:
     [|system|]You are EXAONE model from LG AI Research...[|endofturn|]
     [|user|]{question}[|endofturn|]
     [|assistant|]{answer}[|endofturn|]
     """
-    system_prompt = "You are EXAONE model from LG AI Research, a helpful assistant."
 
-    # Psych-101 format: prompt + " A: Machine" (model continues with "1" or "2")
+    # Check if already in messages format (preprocessed)
+    if 'messages' in example:
+        messages = example['messages']
+        formatted_parts = []
+
+        for msg in messages:
+            role = msg['role']
+            content = msg['content']
+
+            if role == 'system':
+                formatted_parts.append(f"[|system|]{content}[|endofturn|]")
+            elif role == 'user':
+                formatted_parts.append(f"[|user|]{content}[|endofturn|]")
+            elif role == 'assistant':
+                formatted_parts.append(f"[|assistant|]{content}[|endofturn|]")
+
+        formatted_text = "\n".join(formatted_parts)
+        return {"text": formatted_text}
+
+    # Original Psych-101 format
+    system_prompt = "You are EXAONE model from LG AI Research, a helpful assistant."
     question = example['prompt']
 
     # Extract the correct answer from prompt or use provided choice
-    # In Psych-101, the format is "A: Machine" and model should output "1" or "2"
     if 'choice' in example:
         answer = str(example['choice'])
     else:
-        # Try to extract from prompt if not provided
         answer = "1"  # Default fallback
 
     formatted_text = (
@@ -145,15 +172,16 @@ def main():
     log_message("\n[1/6] Loading Psych-101 dataset...", log_file)
 
     try:
-        dataset = load_dataset("marcelbinz/Psych-101")
+        # Load preprocessed JSONL file
+        dataset = load_dataset("json", data_files={"train": DATA_FILE})
         log_message(f"✅ Dataset loaded successfully", log_file)
         log_message(f"   Train samples: {len(dataset['train'])}", log_file)
 
-        # Format dataset
+        # Format dataset (handles both messages and prompt formats)
         log_message("   Formatting prompts...", log_file)
         formatted_dataset = dataset.map(
             format_psych101_prompt,
-            remove_columns=dataset['train'].column_names,
+            remove_columns=[col for col in dataset['train'].column_names if col != 'text'],
             desc="Formatting prompts"
         )
 
@@ -161,6 +189,8 @@ def main():
 
     except Exception as e:
         log_message(f"❌ Error loading dataset: {e}", log_file)
+        import traceback
+        log_message(traceback.format_exc(), log_file)
         return
 
     # -------------------------------------------------------------------------
@@ -171,7 +201,8 @@ def main():
     try:
         tokenizer = AutoTokenizer.from_pretrained(
             MODEL_NAME,
-            trust_remote_code=True
+            trust_remote_code=True,
+            cache_dir=CACHE_DIR
         )
 
         # Set padding token if not present
@@ -231,6 +262,7 @@ def main():
             quantization_config=bnb_config,
             device_map="auto",
             trust_remote_code=True,
+            cache_dir=CACHE_DIR
         )
 
         log_message(f"✅ Model loaded", log_file)

@@ -29,6 +29,10 @@ export TMPDIR=/scratch/connectome/connectome1/ko-centaur/tmp
 # Set PyTorch CUDA memory allocator settings to reduce fragmentation
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
+# CRITICAL: Force single GPU usage (prevent accelerate from spawning multi-GPU workers)
+# This was the root cause of 237 it/s → 0.12 it/s speed degradation
+export CUDA_VISIBLE_DEVICES=0
+
 # Activate conda environment
 source /scratch/connectome/connectome1/miniconda3/bin/activate ko-centaur
 
@@ -43,12 +47,13 @@ echo ""
 # Navigate to working directory
 cd /scratch/connectome/connectome1/ko-centaur
 
-# Single GPU training (memory-optimized: batch_size=1, grad_accum=8, seq_len=512)
-echo "Starting training with single GPU (memory-optimized)..."
-echo "Configuration: batch_size=1, gradient_accumulation=8, max_seq_length=512"
-echo "Resuming from: checkpoint-3000"
+# Single GPU training (OPTIMIZED: 4-bit quantization - faster than 8-bit)
+echo "Starting training with 4-bit quantization..."
+echo "Configuration: batch_size=2, gradient_accumulation=4, max_seq_length=1024"
+echo "Optimizations: 4-bit quantization (faster than 8-bit)"
+echo "Starting fresh (no checkpoint resume)"
 echo ""
-python /Users/jiookcha/Documents/git/CENTaUR/ko_centaur/training/train_psych101_full_slurm.py
+python ko_centaur/training/train_psych101_full_slurm.py
 
 echo ""
 echo "=========================================="
