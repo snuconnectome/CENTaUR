@@ -10,23 +10,33 @@ Verifies that:
 """
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import argparse
 
 
 def test_model_loading(model_path):
-    """Test that NF4 model loads correctly"""
+    """Test that NF4 model loads correctly with on-the-fly quantization"""
     print("\n" + "=" * 80)
-    print("TEST 1: Model Loading")
+    print("TEST 1: Model Loading with On-the-fly NF4 Quantization")
     print("=" * 80)
 
     print(f"\nLoading model from: {model_path}")
     print("Expected: NF4 quantized model with ~16-18GB VRAM usage")
+    print("Using BitsAndBytes on-the-fly quantization...")
 
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
+    # Configure NF4 quantization
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+    )
+
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
+        quantization_config=bnb_config,
         device_map="auto",
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,
@@ -154,15 +164,16 @@ def main():
     parser.add_argument(
         "--model-path",
         type=str,
-        default="/scratch/connectome/connectome1/ko-centaur/models/gpt-oss-20b-nf4",
-        help="Path to NF4 model"
+        default="/home/connectome/connectome1/models/gpt-oss-20b",
+        help="Path to GPT-OSS-20B model (full precision, will be quantized on-the-fly)"
     )
     args = parser.parse_args()
 
     print("=" * 80)
-    print("GPT-OSS-20B NF4 Validation for CENTaUR Workflow")
+    print("GPT-OSS-20B On-the-fly NF4 Quantization for CENTaUR")
     print("=" * 80)
     print(f"\nModel: {args.model_path}")
+    print(f"Quantization: On-the-fly NF4 with BitsAndBytes")
     print(f"Purpose: Verify hidden state extraction compatibility")
     print(f"Use case: Feature extraction for cognitive modeling")
 

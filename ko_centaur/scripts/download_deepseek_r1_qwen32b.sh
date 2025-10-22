@@ -66,10 +66,9 @@ echo ""
 
 cd "$MODEL_DIR"
 
-# Download with progress
+# Download with progress (removed --local-dir-use-symlinks for compatibility)
 hf download deepseek-ai/DeepSeek-R1-Distill-Qwen-32B \
-    --local-dir deepseek-r1-distill-qwen-32b \
-    --local-dir-use-symlinks False
+    --local-dir deepseek-r1-distill-qwen-32b
 
 EXIT_CODE=$?
 

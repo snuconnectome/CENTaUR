@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=test-gpt-oss-nf4
 #SBATCH --partition=debug
-#SBATCH --nodelist=node3
+#SBATCH --nodelist=node1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:geforce:1
+#SBATCH --gres=gpu:rtx:1
 #SBATCH --mem=50G
 #SBATCH --time=00:30:00
 #SBATCH --output=/scratch/connectome/connectome1/ko-centaur/logs/test_gpt_oss_nf4_%j.out
@@ -20,7 +20,7 @@ echo "=========================================="
 echo ""
 
 # Verify model directory exists
-MODEL_DIR="/scratch/connectome/connectome1/ko-centaur/models/gpt-oss-20b-nf4"
+MODEL_DIR="/home/connectome/connectome1/models/gpt-oss-20b"
 if [ ! -d "$MODEL_DIR" ]; then
     echo "❌ ERROR: Model directory not found: $MODEL_DIR"
     exit 1
@@ -33,8 +33,8 @@ if [ ! -f "$MODEL_DIR/config.json" ]; then
     exit 1
 fi
 
-# Check for safetensors files
-SAFETENSORS_COUNT=$(ls $MODEL_DIR/model*.safetensors 2>/dev/null | wc -l)
+# Check for safetensors files (should have model-*.safetensors)
+SAFETENSORS_COUNT=$(ls $MODEL_DIR/model-*.safetensors 2>/dev/null | wc -l)
 if [ "$SAFETENSORS_COUNT" -eq 0 ]; then
     echo "❌ ERROR: No safetensors files found"
     echo "Download may still be in progress"
@@ -43,6 +43,7 @@ fi
 
 echo "✅ Model directory verified: $MODEL_DIR"
 echo "✅ Found $SAFETENSORS_COUNT safetensors files"
+echo "📝 Note: Using on-the-fly NF4 quantization with BitsAndBytes"
 echo ""
 
 # Activate conda environment
