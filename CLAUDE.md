@@ -151,29 +151,79 @@ features = llama.generator.model.hl.squeeze().detach().cpu()
 - **Partition**: `octopus` (SLURM)
 - **Node**: `node1` (primary GPU node)
 
-### Ko-CENTaUR Project (EXAONE Training)
-- **Location**: `/scratch/connectome/connectome1/ko-centaur`
-- **Model**: LGAI-EXAONE/EXAONE-4.0.1-32B (32B parameters)
-- **Training Method**: DeepSpeed ZeRO-3 Infinity with activation checkpointing
-- **Data**: `data/risky_choice_train.jsonl`
-- **Expected GPU Memory**: 14-17GB per GPU (with checkpointing)
-- **Training Speed**: 10-50x slower than baseline (due to activation recomputation)
+### Ko-CENTaUR Project
+
+**Location**: `/scratch/connectome/connectome1/ko-centaur`
+
+**Goal**: Replicate original CENTaUR methodology (Binz & Schulz, 2023) using modern Korean-capable LLMs
+
+**Models**:
+1. **Qwen2.5-32B-Instruct** with QLoRA fine-tuning
+2. **DeepSeek-R1-Distill-Qwen-32B** with QLoRA fine-tuning
+
+**Evaluation Pipeline** (Original CENTaUR Methodology):
+
+```
+1. Feature Extraction (scripts/extract_centaur_features.py)
+   ├─ Load fine-tuned model (base + LoRA adapter)
+   ├─ Forward pass on prompts (NO generation)
+   ├─ Extract last-layer hidden states (3072-dim)
+   └─ Save features → data/features/*.pth
+
+2. 100-fold LOO Cross-Validation (scripts/fit_centaur_loo_cv.py)
+   ├─ Load extracted features
+   ├─ Nested 11-fold CV for alpha selection
+   ├─ Fit BinomialRegression (legacy/models.py)
+   └─ Compute negative log-likelihood (NLL)
+
+3. Benchmark Comparison
+   ├─ Random baseline: NLL ≈ 120,000
+   ├─ LLaMA-65B (original): NLL ≈ 30,000
+   ├─ Qwen2.5-32B (ours): NLL = ?
+   └─ DeepSeek-R1 (ours): NLL = ?
+```
+
+**Current Status** (2025-10-26):
+- ✅ Fine-tuning: Qwen2.5-32B, DeepSeek-R1 trained on Choices13k
+- ✅ Feature extraction scripts: Production-ready with NF4 quantization
+- ✅ SLURM scripts: `submit_extract_qwen25.sh`, `submit_extract_deepseek.sh`
+- ⏳ LOO CV implementation: In progress
+- ⏳ Benchmark results: Pending feature extraction
+
+**Key Files**:
+- `scripts/extract_centaur_features.py`: Main extraction script
+- `scripts/fit_centaur_loo_cv.py`: Cross-validation (to be finalized)
+- `claudedocs/EVALUATION_METHODOLOGY_ANALYSIS.md`: Detailed methodology comparison
+- `legacy/models.py`: Original BinomialRegression implementation
 
 ### SLURM Commands
-```bash
-# Submit job
-sbatch submit_exaone40_infinity.sh
 
+**Feature Extraction**:
+```bash
+# Extract features from Qwen2.5-32B
+sbatch scripts/submit_extract_qwen25.sh
+
+# Extract features from DeepSeek-R1
+sbatch scripts/submit_extract_deepseek.sh
+
+# Monitor extraction
+tail -f /scratch/connectome/connectome1/ko-centaur/logs/extract_*.out
+```
+
+**General SLURM**:
+```bash
 # Check job status
 squeue -u $USER
 
 # Monitor GPU
 watch -n 1 nvidia-smi
 
-# View logs
-tail -f logs/infinity_*.out
-tail -f logs/gpu_monitor_*.log
-
 # Cancel job
 scancel <job_id>
+```
+
+**Quick Test** (Local):
+```bash
+# Test with 10 samples
+python scripts/extract_centaur_features.py --model qwen25 --n_samples 10
 ```
