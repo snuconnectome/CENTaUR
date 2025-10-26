@@ -27,18 +27,23 @@ Following the original Binz & Schulz (2023) methodology:
 
 ### Quick Start
 
-**Feature Extraction**:
+**Complete Pipeline**:
 ```bash
-# Test locally (10 samples)
-python scripts/extract_centaur_features.py --model qwen25 --n_samples 10
-
-# Run on server (full dataset)
+# Step 1: Feature Extraction (GPU required)
 sbatch scripts/submit_extract_qwen25.sh
 sbatch scripts/submit_extract_deepseek.sh
+
+# Step 2: 100-fold LOO Cross-Validation (CPU only)
+sbatch scripts/submit_fit_qwen25.sh
+sbatch scripts/submit_fit_deepseek.sh
 ```
 
-**Cross-Validation** (Coming soon):
+**Local Testing**:
 ```bash
+# Test feature extraction (10 samples)
+python scripts/extract_centaur_features.py --model qwen25 --n_samples 10
+
+# Test LOO CV (requires extracted features)
 python scripts/fit_centaur_loo_cv.py --model qwen25
 ```
 
@@ -67,10 +72,10 @@ python scripts/fit_centaur_loo_cv.py --model qwen25
 ### Current Status (2025-10-26)
 
 - ✅ Fine-tuning: Qwen2.5-32B, DeepSeek-R1 trained on Choices13k
-- ✅ Feature extraction scripts: Production-ready
-- ✅ SLURM infrastructure: Ready for server deployment
-- ⏳ LOO CV implementation: In progress
-- ⏳ Benchmark results: Pending
+- ✅ Feature extraction: Production-ready with NF4 quantization
+- ✅ LOO CV: 100-fold implementation complete with nested CV
+- ✅ SLURM infrastructure: Complete pipeline ready for deployment
+- ⏳ Benchmark results: Pending feature extraction execution
 
 ### Citation
 

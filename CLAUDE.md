@@ -198,16 +198,19 @@ features = llama.generator.model.hl.squeeze().detach().cpu()
 
 ### SLURM Commands
 
-**Feature Extraction**:
+**Complete Pipeline**:
 ```bash
-# Extract features from Qwen2.5-32B
+# Step 1: Extract features (requires GPU)
 sbatch scripts/submit_extract_qwen25.sh
-
-# Extract features from DeepSeek-R1
 sbatch scripts/submit_extract_deepseek.sh
 
-# Monitor extraction
+# Step 2: 100-fold LOO CV (CPU only, after features are extracted)
+sbatch scripts/submit_fit_qwen25.sh
+sbatch scripts/submit_fit_deepseek.sh
+
+# Monitor jobs
 tail -f /scratch/connectome/connectome1/ko-centaur/logs/extract_*.out
+tail -f /scratch/connectome/connectome1/ko-centaur/logs/fit_*.out
 ```
 
 **General SLURM**:
@@ -215,7 +218,7 @@ tail -f /scratch/connectome/connectome1/ko-centaur/logs/extract_*.out
 # Check job status
 squeue -u $USER
 
-# Monitor GPU
+# Monitor GPU (for feature extraction)
 watch -n 1 nvidia-smi
 
 # Cancel job
@@ -224,6 +227,9 @@ scancel <job_id>
 
 **Quick Test** (Local):
 ```bash
-# Test with 10 samples
+# Test feature extraction with 10 samples
 python scripts/extract_centaur_features.py --model qwen25 --n_samples 10
+
+# Test LOO CV (requires extracted features)
+python scripts/fit_centaur_loo_cv.py --model qwen25
 ```

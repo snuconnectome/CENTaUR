@@ -272,12 +272,12 @@ if __name__ == "__main__":
 
     # Model configurations
     if args.model == "qwen25":
-        features_path = "/scratch/connectome/connectome1/ko-centaur/data/centaur_features_qwen25.pth"
-        output_path = "/scratch/connectome/connectome1/ko-centaur/data/loo_cv_results_qwen25.pth"
+        features_path = "/scratch/connectome/connectome1/ko-centaur/data/features/centaur_features_qwen25.pth"
+        output_path = "/scratch/connectome/connectome1/ko-centaur/data/results/loo_cv_results_qwen25.pth"
         model_name = "Qwen2.5-32B-QLoRA"
     elif args.model == "deepseek":
-        features_path = "/scratch/connectome/connectome1/ko-centaur/data/centaur_features_deepseek.pth"
-        output_path = "/scratch/connectome/connectome1/ko-centaur/data/loo_cv_results_deepseek.pth"
+        features_path = "/scratch/connectome/connectome1/ko-centaur/data/features/centaur_features_deepseek.pth"
+        output_path = "/scratch/connectome/connectome1/ko-centaur/data/results/loo_cv_results_deepseek.pth"
         model_name = "DeepSeek-R1-32B-QLoRA"
 
     # Run evaluation
