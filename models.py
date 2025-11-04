@@ -24,10 +24,31 @@ class BinomialRegression(nn.Module):
             def closure():
                 optimizer.zero_grad()
                 logits = self(X)
+
+                # Check for NaN/Inf in logits
+                if torch.isnan(logits).any() or torch.isinf(logits).any():
+                    print(f"\nWarning: Invalid logits detected at iteration {i}")
+                    print(f"  NaN count: {torch.isnan(logits).sum().item()}")
+                    print(f"  Inf count: {torch.isinf(logits).sum().item()}")
+                    # Return large loss to prevent optimizer from using invalid gradients
+                    return torch.tensor(1e10, requires_grad=True)
+
                 loss = -Binomial(total_count=num_choices, logits=logits).log_prob(num_B_choices).mean() + self.alpha * self.W.weight.pow(2).sum()
+
+                # Check for NaN/Inf in loss
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print(f"\nWarning: Invalid loss detected at iteration {i}")
+                    return torch.tensor(1e10, requires_grad=True)
+
                 loss.backward()
                 return loss
-            optimizer.step(closure)
+
+            loss = optimizer.step(closure)
+
+            # Early stopping if loss becomes invalid
+            if torch.isnan(loss) or torch.isinf(loss) or loss.item() > 1e9:
+                print(f"\nStopping early at iteration {i} due to invalid loss: {loss.item()}")
+                break
 
 class JointBinomialRegression(nn.Module):
     def __init__(self, num_inputs, alpha, temp):

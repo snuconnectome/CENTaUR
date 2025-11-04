@@ -29,6 +29,9 @@ def nested_cv_select_alpha(X_train, y_train, alpha_grid, n_folds=11, seed=42):
         best_alpha: Optimal alpha value
     """
     np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
     n_train = len(X_train)
 
     # Create fold indices
@@ -53,21 +56,28 @@ def nested_cv_select_alpha(X_train, y_train, alpha_grid, n_folds=11, seed=42):
         X_fold_val = X_train[val_idx]
         y_fold_val = y_train[val_idx]
 
+        # Normalize fold features using fold training set statistics
+        fold_mean = X_fold_train.mean(dim=0, keepdim=True)
+        fold_std = X_fold_train.std(dim=0, keepdim=True) + 1e-8
+
+        X_fold_train_norm = (X_fold_train - fold_mean) / fold_std
+        X_fold_val_norm = (X_fold_val - fold_mean) / fold_std
+
         # Try each alpha
         for alpha in alpha_grid:
             # Train model
-            model = BinomialRegression(num_inputs=X_train.shape[1], alpha=alpha)
+            model = BinomialRegression(num_inputs=X_fold_train_norm.shape[1], alpha=alpha)
 
             # Convert to proper format for BinomialRegression
             # y_train is binary 0/1, we need num_choices=1, num_B_choices=y_train
-            num_choices = torch.ones(len(X_fold_train), dtype=torch.long)
+            num_choices = torch.ones(len(X_fold_train_norm), dtype=torch.long)
             num_B_choices = y_fold_train.long()
 
-            model.fit(X_fold_train, num_choices, num_B_choices, num_iterations=100)
+            model.fit(X_fold_train_norm, num_choices, num_B_choices, num_iterations=100)
 
             # Compute validation NLL
             with torch.no_grad():
-                logits = model(X_fold_val)
+                logits = model(X_fold_val_norm)
                 probs_B = torch.sigmoid(logits)
 
                 # NLL for binary classification
