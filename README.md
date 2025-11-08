@@ -15,6 +15,10 @@ Repository for:
 ### Models
 - **Qwen2.5-32B-Instruct** (QLoRA fine-tuned)
 - **DeepSeek-R1-Distill-Qwen-32B** (QLoRA fine-tuned)
+- **GPT-OSS-20B** (OpenAI open-source GPT model)
+- **EXAONE-3.5-32B-Instruct** ⭐ (Latest Korean model, MMLU-Pro 81.8%, top performance)
+- **Kimi K2** (Moonshot AI, Multi-Agent optimized, 128K context)
+- **추가 예정**: GPT-OSS-120B, LUXIA 2.5 등 (조사 완료, [MODEL_RESEARCH_REPORT.md](MODEL_RESEARCH_REPORT.md) 참고)
 
 ### Evaluation Pipeline
 
@@ -66,6 +70,8 @@ python scripts/fit_centaur_loo_cv.py --model qwen25
 
 ### Documentation
 
+- **[ONBOARDING.md](ONBOARDING.md)**: 🆕 New developer onboarding guide (start here!)
+- **[QUICKSTART.md](QUICKSTART.md)**: Quick start guide for dgx-spark experiments
 - **[CLAUDE.md](CLAUDE.md)**: Complete project documentation and workflow
 - **[EVALUATION_METHODOLOGY_ANALYSIS.md](claudedocs/EVALUATION_METHODOLOGY_ANALYSIS.md)**: Detailed comparison of original vs. current methodology
 
