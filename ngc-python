@@ -1,0 +1,28 @@
+#!/bin/bash
+# NGC PyTorch Python Wrapper
+# Automatically runs Python scripts in NGC PyTorch Docker container
+# Usage: ./ngc-python script.py --args
+
+set -e
+
+SUDO_PASSWORD="462773"
+PROJECT_DIR="/home/juke/git/CENTaUR"
+NGC_IMAGE="nvcr.io/nvidia/pytorch:24.08-py3"
+
+# Check if NGC image exists
+if ! echo "$SUDO_PASSWORD" | sudo -S docker images | grep -q "nvcr.io/nvidia/pytorch.*24.08"; then
+    echo "❌ NGC PyTorch image not found. Pulling..."
+    echo "$SUDO_PASSWORD" | sudo -S docker pull $NGC_IMAGE
+fi
+
+# Run Python in NGC container
+echo "$SUDO_PASSWORD" | sudo -S docker run --rm \
+  --gpus=all \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  -v "$PROJECT_DIR:/workspace" \
+  -w /workspace \
+  -e PYTHONUNBUFFERED=1 \
+  $NGC_IMAGE \
+  python "$@"

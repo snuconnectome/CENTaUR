@@ -394,8 +394,8 @@ Examples:
 
     if args.model == "qwen25":
         base_model = "Qwen/Qwen2.5-32B-Instruct"
-        adapter = "/scratch/connectome/connectome1/ko-centaur/outputs/qwen25-32b-qlora"
-        output_default = "/scratch/connectome/connectome1/ko-centaur/data/features/centaur_features_qwen25.pth"
+        adapter = "models/qwen25-32b-qlora"
+        output_default = "data/features/centaur_features_qwen25.pth"
         name = "Qwen2.5-32B-QLoRA"
         is_local = False
         use_adapter = True
@@ -403,7 +403,7 @@ Examples:
     elif args.model == "qwen25-base":
         base_model = "Qwen/Qwen2.5-32B-Instruct"
         adapter = None
-        output_default = "/scratch/connectome/connectome1/ko-centaur/data/features/centaur_features_qwen25_base.pth"
+        output_default = "data/features/centaur_features_qwen25_base.pth"
         name = "Qwen2.5-32B-Base"
         is_local = False
         use_adapter = False
@@ -465,7 +465,7 @@ Examples:
         adapter = None
         output_default = "/scratch/connectome/connectome1/ko-centaur/data/features/centaur_features_exaone35_base.pth"
         name = "EXAONE-3.5-32B-Base"
-        is_local = False
+        is_local = True  # Custom code requires trust_remote_code=True
         use_adapter = False
 
     elif args.model == "gpt-oss-120b":
@@ -533,20 +533,21 @@ Examples:
 
     elif args.model == "kimi-k2":
         # Kimi K2 Instruct (Moonshot AI, MoE architecture, Multi-Agent optimized)
-        base_model = "moonshot-ai/Kimi-K2-Instruct"
+        # 올바른 모델 ID: moonshotai (not moonshot-ai)
+        base_model = "moonshotai/Kimi-K2-Instruct"
         adapter = None
         output_default = "/scratch/connectome/connectome1/ko-centaur/data/features/centaur_features_kimi_k2.pth"
         name = "Kimi-K2-Instruct"
-        is_local = False
+        is_local = True  # Custom code requires trust_remote_code=True
         use_adapter = False
 
     elif args.model == "kimi-k2-base":
         # Kimi K2 Base (Moonshot AI, MoE architecture)
-        base_model = "moonshot-ai/Kimi-K2-Base"
+        base_model = "moonshotai/Kimi-K2-Base"
         adapter = None
         output_default = "/scratch/connectome/connectome1/ko-centaur/data/features/centaur_features_kimi_k2_base.pth"
         name = "Kimi-K2-Base"
-        is_local = False
+        is_local = True  # Custom code requires trust_remote_code=True
         use_adapter = False
 
     # Use defaults or command-line overrides

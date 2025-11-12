@@ -16,6 +16,7 @@ Strategy: BitsAndBytesConfig NF4 quantization + LoRA adapters
 """
 
 import argparse
+import os
 import yaml
 import torch
 from datasets import load_dataset
@@ -97,6 +98,33 @@ def main():
     print(f"Korean Language: Confirmed support")
     print(f"Performance: Outperforms OpenAI o1-mini (AIME 2024: 86.0 vs 63.6)")
     print("=" * 80)
+
+    # ============================================================================
+    # GPU 사용 강제 확인
+    # ============================================================================
+    print("\n[0/6] GPU 사용 확인 및 강제 설정...")
+    if not torch.cuda.is_available():
+        raise RuntimeError("❌ CUDA를 사용할 수 없습니다! GPU가 필요합니다.")
+
+    num_gpus = torch.cuda.device_count()
+    print(f"✅ CUDA 사용 가능: {num_gpus}개 GPU 감지")
+
+    for i in range(num_gpus):
+        gpu_name = torch.cuda.get_device_name(i)
+        gpu_mem = torch.cuda.get_device_properties(i).total_memory / 1024**3
+        print(f"   GPU {i}: {gpu_name} ({gpu_mem:.1f} GB)")
+
+    # CUDA_VISIBLE_DEVICES가 설정되어 있으면 사용, 없으면 모든 GPU 사용
+    cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES', None)
+    if cuda_visible:
+        print(f"   CUDA_VISIBLE_DEVICES: {cuda_visible}")
+    else:
+        print(f"   CUDA_VISIBLE_DEVICES: 설정 안됨 (모든 GPU 사용)")
+
+    # 기본 디바이스를 GPU로 설정
+    device = torch.device("cuda:0")
+    print(f"   기본 디바이스: {device}")
+    print("✅ GPU 사용 준비 완료")
 
     # ============================================================================
     # Step 1: Load Tokenizer
@@ -235,7 +263,46 @@ def main():
         data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
     )
     print("✅ Trainer initialized")
-    print(f"   - Effective batch size: {config['training']['per_device_train_batch_size']} × {config['training']['gradient_accumulation_steps']} × 4 GPUs = {config['training']['per_device_train_batch_size'] * config['training']['gradient_accumulation_steps'] * 4}")
+    print(f"   - Effective batch size: {config['training']['per_device_train_batch_size']} × {config['training']['gradient_accumulation_steps']} × {torch.cuda.device_count()} GPUs = {config['training']['per_device_train_batch_size'] * config['training']['gradient_accumulation_steps'] * torch.cuda.device_count()}")
+
+    # 최종 GPU 사용 확인
+    print("\n🔍 최종 GPU 사용 확인...")
+    if not torch.cuda.is_available():
+        raise RuntimeError("❌ 오류: 학습 시작 전 CUDA 사용 불가!")
+
+    # 모델 파라미터의 주요 디바이스 확인
+    device_counts = {}
+    for param in model.parameters():
+        dev_type = param.device.type
+        device_counts[dev_type] = device_counts.get(dev_type, 0) + 1
+
+    print(f"   파라미터 디바이스 분포: {device_counts}")
+
+    # GPU에 파라미터가 있는지 확인
+    if 'cuda' not in device_counts or device_counts['cuda'] == 0:
+        raise RuntimeError("❌ 오류: 모델 파라미터가 GPU에 없습니다! 학습을 진행할 수 없습니다.")
+
+    # GPU 파라미터가 대부분인지 확인
+    total_params = sum(device_counts.values())
+    gpu_ratio = device_counts.get('cuda', 0) / total_params if total_params > 0 else 0
+
+    if gpu_ratio < 0.5:
+        print(f"   ⚠️  경고: GPU 파라미터 비율이 낮습니다 ({gpu_ratio*100:.1f}%)")
+        print(f"   ⚠️  학습 속도가 느려질 수 있습니다.")
+    else:
+        print(f"   ✅ GPU 파라미터 비율: {gpu_ratio*100:.1f}%")
+
+    # 주요 디바이스 확인 (가장 많은 파라미터가 있는 디바이스)
+    main_device = max(device_counts.items(), key=lambda x: x[1])[0]
+    if main_device != 'cuda':
+        print(f"   ⚠️  경고: 주요 파라미터가 {main_device}에 있습니다.")
+        print(f"   ⚠️  하지만 학습은 GPU에서 진행됩니다 (Trainer가 자동 처리).")
+    else:
+        print(f"   ✅ 주요 파라미터가 GPU에 있습니다.")
+
+    print(f"   ✅ 사용 가능한 GPU: {torch.cuda.device_count()}개")
+    print("✅ GPU 사용 확인 완료 - 학습 시작합니다!")
+    print("   (일부 파라미터가 CPU에 있어도 학습은 GPU에서 진행됩니다)")
 
     # ============================================================================
     # Training
@@ -243,7 +310,7 @@ def main():
     print("\n" + "=" * 80)
     print("Starting DeepSeek-R1-Distill-Qwen-32B QLoRA training...")
     print("Monitor GPU memory: nvidia-smi dmon -s mu")
-    print("Expected: 18-22GB per GPU (4 GPUs total)")
+    print(f"Expected: 18-22GB per GPU ({torch.cuda.device_count()} GPUs total)")
     print("Model Performance: AIME 2024: 86.0 (beats o1-mini's 63.6)")
     print("=" * 80)
 

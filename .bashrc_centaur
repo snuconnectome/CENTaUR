@@ -1,0 +1,25 @@
+# CENTaUR Project NGC PyTorch Configuration
+# Source this file to use NGC PyTorch by default
+# Add to ~/.bashrc: source /home/juke/git/CENTaUR/.bashrc_centaur
+
+export CENTAUR_PROJECT_DIR="/home/juke/git/CENTaUR"
+export CENTAUR_USE_NGC=1
+
+# Alias for NGC PyTorch
+alias centaur-python="$CENTAUR_PROJECT_DIR/ngc-python"
+alias centaur-shell="$CENTAUR_PROJECT_DIR/ngc-python-interactive"
+
+# Helper function to run commands in NGC container
+centaur-run() {
+    echo "Running in NGC PyTorch container: $@"
+    "$CENTAUR_PROJECT_DIR/ngc-python" "$@"
+}
+
+# Change to CENTaUR directory
+alias cdcentaur="cd $CENTAUR_PROJECT_DIR"
+
+echo "✅ CENTaUR NGC PyTorch environment loaded"
+echo "   Use: centaur-python script.py"
+echo "   Use: centaur-shell (interactive)"
+echo "   Use: centaur-run script.py"
+echo "   Use: cdcentaur (go to project)"

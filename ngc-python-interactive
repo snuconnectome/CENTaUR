@@ -1,0 +1,24 @@
+#!/bin/bash
+# NGC PyTorch Interactive Shell
+# Drops into an interactive NGC PyTorch container with project mounted
+
+SUDO_PASSWORD="462773"
+PROJECT_DIR="/home/juke/git/CENTaUR"
+NGC_IMAGE="nvcr.io/nvidia/pytorch:24.08-py3"
+
+echo "=========================================="
+echo "NGC PyTorch Interactive Shell"
+echo "=========================================="
+echo "Project mounted at: /workspace"
+echo "GPU: Available"
+echo ""
+
+echo "$SUDO_PASSWORD" | sudo -S docker run -it --rm \
+  --gpus=all \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  -v "$PROJECT_DIR:/workspace" \
+  -w /workspace \
+  $NGC_IMAGE \
+  bash

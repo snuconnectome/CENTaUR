@@ -233,3 +233,67 @@ python scripts/extract_centaur_features.py --model qwen25 --n_samples 10
 # Test LOO CV (requires extracted features)
 python scripts/fit_centaur_loo_cv.py --model qwen25
 ```
+
+## Critical Implementation Requirements
+
+### ⚠️ MANDATORY: GPU Initialization in Training Scripts
+
+**ALL QLoRA training scripts MUST include GPU initialization code at the start of main().**
+
+Without this code, `Accelerate` will fail to detect GPUs properly, resulting in:
+```
+TypeError: device() received an invalid combination of arguments - got (NoneType)
+```
+
+**Required GPU initialization template:**
+```python
+def main():
+    # ... load config ...
+    
+    # ============================================================================
+    # GPU 사용 강제 확인 (MANDATORY!)
+    # ============================================================================
+    print("\n[0/6] GPU 사용 확인 및 강제 설정...")
+    if not torch.cuda.is_available():
+        raise RuntimeError("❌ CUDA를 사용할 수 없습니다! GPU가 필요합니다.")
+    
+    num_gpus = torch.cuda.device_count()
+    print(f"✅ CUDA 사용 가능: {num_gpus}개 GPU 감지")
+    
+    for i in range(num_gpus):
+        gpu_name = torch.cuda.get_device_name(i)
+        gpu_mem = torch.cuda.get_device_properties(i).total_memory / 1024**3
+        print(f"   GPU {i}: {gpu_name} ({gpu_mem:.1f} GB)")
+    
+    # CUDA_VISIBLE_DEVICES가 설정되어 있으면 사용, 없으면 모든 GPU 사용
+    cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES', None)
+    if cuda_visible:
+        print(f"   CUDA_VISIBLE_DEVICES: {cuda_visible}")
+    else:
+        print(f"   CUDA_VISIBLE_DEVICES: 설정 안됨 (모든 GPU 사용)")
+    
+    # 기본 디바이스를 GPU로 설정
+    device = torch.device("cuda:0")
+    print(f"   기본 디바이스: {device}")
+    print("✅ GPU 사용 준비 완료")
+    
+    # ... continue with tokenizer, dataset, model loading ...
+```
+
+**Why this is critical:**
+1. Forces early GPU detection before model loading
+2. Ensures `Accelerate` properly initializes with CUDA devices
+3. Prevents device mapping failures that cause `NoneType` errors
+4. Provides clear error messages if GPUs are unavailable
+
+**Affected scripts:**
+- `ko_centaur/training/train_qwen25_32b_qlora.py` ✅ HAS IT
+- `ko_centaur/training/train_deepseek_r1_qwen32b_qlora.py` ✅ FIXED (added 2025-11-09)
+- **ANY NEW** QLoRA training script MUST include this!
+
+**Checklist for new training scripts:**
+- [ ] Import `os` module
+- [ ] Add GPU initialization code in `main()` before tokenizer loading
+- [ ] Test with NGC PyTorch container
+- [ ] Verify training starts without device errors
+

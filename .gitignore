@@ -36,3 +36,25 @@ legacy/
 tmp/
 *.log
 .serena/
+
+# Additional virtual environments
+venv.backup/
+dgx-venv/
+
+# Model files and checkpoints
+models/*/
+
+# Model files and checkpoints (too large for GitHub)
+models/*/
+*.pt
+*.ckpt
+*.safetensors
+
+# Log files
+logs/
+*.log
+
+# Profile files (may contain secrets)
+profiles/
+*.nsys-rep
+*.sqlite

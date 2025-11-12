@@ -1,0 +1,55 @@
+{
+  "qwen25_base_loo_cv": {
+    "profile_file": "profiles/qwen25_base_loo_cv.nsys-rep",
+    "timestamp": "2025-11-09T14:25:07.195291",
+    "cuda_api": {
+      "total_calls": 13,
+      "top_apis": [
+        {
+          "time_percent": 49.8,
+          "total_time_ns": 4661024.0,
+          "num_calls": 1,
+          "name": "cudaGetDeviceProperties_v12000"
+        },
+        {
+          "time_percent": 31.9,
+          "total_time_ns": 2982800.0,
+          "num_calls": 1,
+          "name": "cudaLaunchKernel"
+        },
+        {
+          "time_percent": 11.5,
+          "total_time_ns": 1080320.0,
+          "num_calls": 2,
+          "name": "cudaMalloc"
+        },
+        {
+          "time_percent": 3.4,
+          "total_time_ns": 314800.0,
+          "num_calls": 3,
+          "name": "cudaStreamSynchronize"
+        },
+        {
+          "time_percent": 3.3,
+          "total_time_ns": 310128.0,
+          "num_calls": 3,
+          "name": "cudaMemcpyAsync"
+        },
+        {
+          "time_percent": 0.1,
+          "total_time_ns": 9328.0,
+          "num_calls": 2,
+          "name": "cudaStreamIsCapturing_v10000"
+        },
+        {
+          "time_percent": 0.0,
+          "total_time_ns": 800.0,
+          "num_calls": 1,
+          "name": "cuModuleGetLoadingMode"
+        }
+      ]
+    },
+    "gpu_memory": {},
+    "gpu_kernels": {}
+  }
+}

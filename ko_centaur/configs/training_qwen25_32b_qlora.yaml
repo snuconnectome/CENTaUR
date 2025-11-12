@@ -2,7 +2,7 @@
 # 4-bit quantization for 4x RTX 3090 (24GB each)
 
 model:
-  name: /scratch/connectome/connectome1/ko-centaur/models/qwen2.5-32b-instruct
+  name: Qwen/Qwen2.5-32B-Instruct
   trust_remote_code: true
 
   lora:
@@ -21,7 +21,7 @@ model:
     task_type: CAUSAL_LM
 
 data:
-  train_file: /scratch/connectome/connectome1/ko-centaur/data/choices13k_full.jsonl
+  train_file: ko_centaur/data/choices13k_100.jsonl
   max_seq_length: 512
   validation_split: 0.1
 
@@ -61,7 +61,7 @@ training:
   optim: paged_adamw_8bit
 
 output:
-  output_dir: /scratch/connectome/connectome1/ko-centaur/outputs/qwen25-32b-qlora
+  output_dir: models/qwen25-32b-qlora
 
 misc:
   seed: 42
